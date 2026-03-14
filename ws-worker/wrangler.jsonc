@@ -1,0 +1,46 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "ws-worker",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-03-12",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": { "enabled": true },
+
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "UserGateway",
+				"name": "USER_GATEWAY"
+			}
+		]
+	},
+
+	"migrations": [
+		{
+			"new_sqlite_classes": ["UserGateway"],
+			"tag": "v1"
+		}
+	],
+
+	"r2_buckets": [
+		{
+			"binding": "PHOTOS_BUCKET",
+			"bucket_name": "chat-photos"
+		}
+	],
+
+	"vars": {
+		"JWT_ISSUER": "",
+		"JWT_AUDIENCE": "",
+		"R2_BUCKET_NAME": "chat-photos",
+		"TURN_URLS": "[\"turn:turn.example.com:3478\"]"
+	}
+
+	// Secrets (set via `wrangler secret put <NAME>`):
+	//   JWT_PUBLIC_KEY     — PEM-encoded RS256 public key
+	//   R2_ACCESS_KEY_ID   — R2 S3-compatible API token
+	//   R2_SECRET_ACCESS_KEY
+	//   R2_ACCOUNT_ID      — Cloudflare account ID for R2 endpoint
+	//   TURN_USERNAME
+	//   TURN_CREDENTIAL
+}
