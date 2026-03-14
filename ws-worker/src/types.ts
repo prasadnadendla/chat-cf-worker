@@ -1,0 +1,145 @@
+// ── Client → Server Messages ───────────────────────────────────────────
+
+export interface BaseClientMessage {
+	matchId: string;
+	receiverId: string;
+	seq_no: number;
+}
+
+export interface TextMessage extends BaseClientMessage {
+	type: "text";
+	content: string;
+}
+
+export interface EmojiMessage extends BaseClientMessage {
+	type: "emoji";
+	content: string;
+}
+
+export interface GifMessage extends BaseClientMessage {
+	type: "gif";
+	url: string;
+}
+
+export interface PhotoMessage extends BaseClientMessage {
+	type: "photo";
+	messageId: string;
+}
+
+export interface VoiceMessage extends BaseClientMessage {
+	type: "voice";
+}
+
+export type ContentMessage =
+	| TextMessage
+	| EmojiMessage
+	| GifMessage
+	| PhotoMessage
+	| VoiceMessage;
+
+export type ContentType = ContentMessage["type"];
+
+export interface RTCSignal {
+	type: "rtc_offer" | "rtc_answer" | "rtc_ice" | "rtc_failed";
+	matchId: string;
+	receiverId: string;
+	payload: unknown;
+}
+
+export interface ClientAck {
+	type: "ack";
+	messageId: string;
+}
+
+export interface ClientPong {
+	type: "pong";
+}
+
+export interface RefreshMatchesRequest {
+	type: "refresh_matches";
+}
+
+export type ClientMessage =
+	| ContentMessage
+	| RTCSignal
+	| ClientAck
+	| ClientPong
+	| RefreshMatchesRequest;
+
+// ── Server → Client Messages ───────────────────────────────────────────
+
+export interface ServerDelivery {
+	type: "message";
+	messageId: string;
+	matchId: string;
+	senderId: string;
+	messageType: ContentType;
+	content?: string;
+	url?: string;
+	timestamp: number;
+}
+
+export interface ServerAck {
+	type: "ack";
+	messageId: string;
+	seq_no: number;
+	timestamp: number;
+}
+
+export interface PresenceEvent {
+	type: "presence";
+	userId: string;
+	online: boolean;
+}
+
+export interface UnmatchEvent {
+	type: "unmatch";
+	matchId: string;
+}
+
+export interface VoiceReadyEvent {
+	type: "voice_ready";
+	matchId: string;
+	senderId: string;
+	messageId: string;
+}
+
+export interface ServerPing {
+	type: "ping";
+}
+
+export interface ServerError {
+	type: "error";
+	message: string;
+	seq_no?: number;
+}
+
+/** RTC signal relayed to recipient — receiverId replaced with senderId */
+export interface RelayedSignal {
+	type: "rtc_offer" | "rtc_answer" | "rtc_ice" | "rtc_failed";
+	matchId: string;
+	senderId: string;
+	payload: unknown;
+}
+
+export type ServerMessage =
+	| ServerDelivery
+	| ServerAck
+	| PresenceEvent
+	| UnmatchEvent
+	| VoiceReadyEvent
+	| ServerPing
+	| ServerError
+	| RelayedSignal;
+
+// ── Domain ─────────────────────────────────────────────────────────────
+
+export interface Match {
+	matchId: string;
+	matchedUserId: string;
+}
+
+export interface RateWindow {
+	count: number;
+	windowStart: number;
+}

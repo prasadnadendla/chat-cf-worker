@@ -22,6 +22,15 @@
 		}
 	],
 
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "chat-db",
+			"database_id": "",
+			"migrations_dir": "migrations"
+		}
+	],
+
 	"r2_buckets": [
 		{
 			"binding": "PHOTOS_BUCKET",
@@ -33,14 +42,21 @@
 		"JWT_ISSUER": "",
 		"JWT_AUDIENCE": "",
 		"R2_BUCKET_NAME": "chat-photos",
-		"TURN_URLS": "[\"turn:turn.example.com:3478\"]"
+		"TURN_URLS": "[\"turn:turn.example.com:3478\"]",
+		"NODE_API_URL": ""
 	}
 
 	// Secrets (set via `wrangler secret put <NAME>`):
-	//   JWT_PUBLIC_KEY     — PEM-encoded RS256 public key
-	//   R2_ACCESS_KEY_ID   — R2 S3-compatible API token
+	//   JWT_PUBLIC_KEY       — PEM-encoded RS256 public key
+	//   R2_ACCESS_KEY_ID     — R2 S3-compatible API token
 	//   R2_SECRET_ACCESS_KEY
-	//   R2_ACCOUNT_ID      — Cloudflare account ID for R2 endpoint
+	//   R2_ACCOUNT_ID        — Cloudflare account ID for R2 endpoint
 	//   TURN_USERNAME
 	//   TURN_CREDENTIAL
+	//   NODE_API_KEY         — Bearer token for Node.js internal API
+	//
+	// D1 setup:
+	//   wrangler d1 create chat-db
+	//   Copy the database_id into d1_databases[0].database_id above
+	//   wrangler d1 migrations apply chat-db
 }
