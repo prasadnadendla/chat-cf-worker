@@ -1,81 +1,8 @@
 import { AwsClient } from "aws4fetch";
+import { type JWTPayload, verifyJWT } from "./jwt";
 
 // Re-export DO class so wrangler can find it from the main entry
 export { UserGateway } from "./gateway";
-
-// ── JWT Utilities ──────────────────────────────────────────────────────
-
-interface JWTPayload {
-	sub: string;
-	userId: string;
-	exp: number;
-	iss: string;
-	aud: string;
-}
-
-function base64UrlToBytes(s: string): Uint8Array {
-	const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
-	const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
-	const bin = atob(padded);
-	const bytes = new Uint8Array(bin.length);
-	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-	return bytes;
-}
-
-function pemToBuffer(pem: string): ArrayBuffer {
-	const b64 = pem
-		.replace(/-----BEGIN PUBLIC KEY-----/, "")
-		.replace(/-----END PUBLIC KEY-----/, "")
-		.replace(/\s+/g, "");
-	const bin = atob(b64);
-	const bytes = new Uint8Array(bin.length);
-	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-	return bytes.buffer;
-}
-
-async function verifyJWT(
-	token: string,
-	publicKeyPem: string,
-	issuer: string,
-	audience: string,
-): Promise<JWTPayload> {
-	const parts = token.split(".");
-	if (parts.length !== 3) throw new Error("Invalid token format");
-
-	const [headerB64, payloadB64, signatureB64] = parts;
-
-	const header = JSON.parse(
-		new TextDecoder().decode(base64UrlToBytes(headerB64)),
-	);
-	if (header.alg !== "RS256") throw new Error("Unsupported algorithm");
-
-	const cryptoKey = await crypto.subtle.importKey(
-		"spki",
-		pemToBuffer(publicKeyPem),
-		{ name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-		false,
-		["verify"],
-	);
-
-	const valid = await crypto.subtle.verify(
-		"RSASSA-PKCS1-v1_5",
-		cryptoKey,
-		base64UrlToBytes(signatureB64),
-		new TextEncoder().encode(`${headerB64}.${payloadB64}`),
-	);
-	if (!valid) throw new Error("Invalid signature");
-
-	const payload = JSON.parse(
-		new TextDecoder().decode(base64UrlToBytes(payloadB64)),
-	) as JWTPayload;
-
-	const now = Math.floor(Date.now() / 1000);
-	if (payload.exp && payload.exp < now) throw new Error("Token expired");
-	if (issuer && payload.iss !== issuer) throw new Error("Invalid issuer");
-	if (audience && payload.aud !== audience) throw new Error("Invalid audience");
-
-	return payload;
-}
 
 // ── Token Extraction ───────────────────────────────────────────────────
 
@@ -102,28 +29,6 @@ function json(data: unknown, status = 200): Response {
 
 function error(message: string, status: number): Response {
 	return json({ error: message }, status);
-}
-
-// ── Chat Permission ────────────────────────────────────────────────────
-
-async function checkChatPermission(
-	env: Env,
-	userId: string,
-	targetId: string,
-): Promise<boolean> {
-	try {
-		const res = await fetch(
-			`${env.NODE_API_URL}/chat/permitted?userId=${encodeURIComponent(userId)}&targetId=${encodeURIComponent(targetId)}`,
-			{
-				headers: { Authorization: `Bearer ${env.NODE_API_KEY}` },
-			},
-		);
-		if (!res.ok) return false;
-		const data = (await res.json()) as { permitted: boolean };
-		return data.permitted;
-	} catch {
-		return false;
-	}
 }
 
 // ── Route Handlers ─────────────────────────────────────────────────────
@@ -229,17 +134,11 @@ export default {
 			return error(msg, 401);
 		}
 
-		const userId = payload.userId ?? payload.sub;
+		const userId = payload.userId ?? payload.uid ?? payload.sub;
 
-		// WebSocket upgrade → verify chat permission, then route to DO
+		// WebSocket upgrade → route to UserGateway DO
+		// Chat permission enforced by DO: messages rejected if matchId not in active matches
 		if (request.headers.get("Upgrade") === "websocket") {
-			const targetId = url.searchParams.get("targetId");
-			if (targetId) {
-				const permitted = await checkChatPermission(env, userId, targetId);
-				if (!permitted) {
-					return error("Chat not permitted", 403);
-				}
-			}
 			return handleWebSocket(request, env, userId);
 		}
 

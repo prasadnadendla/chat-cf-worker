@@ -554,7 +554,7 @@ export class UserGateway extends DurableObject<Env> {
 		const userId = await this.getUserId();
 
 		const res = await fetch(
-			`${this.env.NODE_API_URL}/matches?userId=${encodeURIComponent(userId)}`,
+			`${this.env.NODE_API_URL}/sys/matches?userId=${encodeURIComponent(userId)}`,
 			{
 				headers: {
 					Authorization: `Bearer ${this.env.NODE_API_KEY}`,

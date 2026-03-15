@@ -40,11 +40,11 @@
 		}
 	],
 	"vars": {
-		"JWT_ISSUER": "",
-		"JWT_AUDIENCE": "",
+		"JWT_ISSUER": "auth.genzyy.in",
+		"JWT_AUDIENCE": "genzyy-app",
 		"R2_BUCKET_NAME": "genzyy-convo",
 		"TURN_URLS": "[\"turn:turn.example.com:3478\"]",
-		"NODE_API_URL": ""
+		"NODE_API_URL": "https://datingapp-api-820618709776.asia-south1.run.app"
 	}
 	// Secrets (set via `wrangler secret put <NAME>`):
 	//   JWT_PUBLIC_KEY       — PEM-encoded RS256 public key
