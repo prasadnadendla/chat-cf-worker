@@ -3,9 +3,12 @@
 	"name": "ws-worker",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-03-12",
-	"compatibility_flags": ["nodejs_compat"],
-	"observability": { "enabled": true },
-
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
 	"durable_objects": {
 		"bindings": [
 			{
@@ -14,30 +17,28 @@
 			}
 		]
 	},
-
 	"migrations": [
 		{
-			"new_sqlite_classes": ["UserGateway"],
+			"new_sqlite_classes": [
+				"UserGateway"
+			],
 			"tag": "v1"
 		}
 	],
-
 	"d1_databases": [
 		{
 			"binding": "DB",
 			"database_name": "chat-metadata",
-			"database_id": "",
+			"database_id": "b383d653-b1ec-4eca-89e1-d17775a64300",
 			"migrations_dir": "migrations"
 		}
 	],
-
 	"r2_buckets": [
 		{
 			"binding": "PHOTOS_BUCKET",
 			"bucket_name": "genzyy-convo"
 		}
 	],
-
 	"vars": {
 		"JWT_ISSUER": "",
 		"JWT_AUDIENCE": "",
@@ -45,7 +46,6 @@
 		"TURN_URLS": "[\"turn:turn.example.com:3478\"]",
 		"NODE_API_URL": ""
 	}
-
 	// Secrets (set via `wrangler secret put <NAME>`):
 	//   JWT_PUBLIC_KEY       — PEM-encoded RS256 public key
 	//   R2_ACCESS_KEY_ID     — R2 S3-compatible API token
