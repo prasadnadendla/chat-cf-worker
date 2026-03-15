@@ -5,12 +5,16 @@ import type {
 	ContentMessage,
 	ServerDelivery,
 	ServerAck,
+	ServerReadAck,
+	ServerEdit,
+	ServerDelete,
 	ServerMessage,
 	PresenceEvent,
 	UnmatchEvent,
-	VoiceReadyEvent,
 	RelayedSignal,
 	RTCSignal,
+	ClientEdit,
+	ClientDelete,
 	Match,
 	RateWindow,
 	ContentType,
@@ -22,7 +26,6 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 30;
 const MAX_TEXT_LENGTH = 1000;
 const TENOR_DOMAIN = "tenor.com";
-const PENDING_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class UserGateway extends DurableObject<Env> {
 	private userId: string | null = null;
@@ -63,7 +66,7 @@ export class UserGateway extends DurableObject<Env> {
 		// Bootstrap state
 		await this.loadMatches();
 		await this.markOnline();
-		await this.checkPendingVoiceDeliveries();
+		// Voice sync: presence broadcast notifies senders who hold pending voice state on-device
 
 		// Start heartbeat alarm
 		await this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_INTERVAL_MS);
@@ -122,7 +125,19 @@ export class UserGateway extends DurableObject<Env> {
 				break;
 
 			case "ack":
-				await this.handleClientAck(msg.messageId);
+				await this.handleClientAck(msg.messageId, msg.senderId);
+				break;
+
+			case "read":
+				await this.handleReadAck(msg.messageId, msg.senderId);
+				break;
+
+			case "edit":
+				await this.handleEdit(msg);
+				break;
+
+			case "delete":
+				await this.handleDelete(msg);
 				break;
 
 			case "text":
@@ -188,6 +203,36 @@ export class UserGateway extends DurableObject<Env> {
 		return true;
 	}
 
+	async deliverAck(messageId: string): Promise<void> {
+		const ack: ServerAck = {
+			type: "ack",
+			messageId,
+			seq_no: -1,
+			timestamp: Date.now(),
+		};
+		for (const ws of this.ctx.getWebSockets()) {
+			this.safeSend(ws, ack);
+		}
+	}
+
+	async relayReadAck(event: ServerReadAck): Promise<void> {
+		for (const ws of this.ctx.getWebSockets()) {
+			this.safeSend(ws, event);
+		}
+	}
+
+	async relayEdit(event: ServerEdit): Promise<void> {
+		for (const ws of this.ctx.getWebSockets()) {
+			this.safeSend(ws, event);
+		}
+	}
+
+	async relayDelete(event: ServerDelete): Promise<void> {
+		for (const ws of this.ctx.getWebSockets()) {
+			this.safeSend(ws, event);
+		}
+	}
+
 	async relaySignal(signal: RelayedSignal): Promise<void> {
 		for (const ws of this.ctx.getWebSockets()) {
 			this.safeSend(ws, signal);
@@ -196,22 +241,6 @@ export class UserGateway extends DurableObject<Env> {
 
 	async notifyPresence(userId: string, online: boolean): Promise<void> {
 		const event: PresenceEvent = { type: "presence", userId, online };
-		for (const ws of this.ctx.getWebSockets()) {
-			this.safeSend(ws, event);
-		}
-	}
-
-	async notifyVoiceReady(
-		matchId: string,
-		senderId: string,
-		messageId: string,
-	): Promise<void> {
-		const event: VoiceReadyEvent = {
-			type: "voice_ready",
-			matchId,
-			senderId,
-			messageId,
-		};
 		for (const ws of this.ctx.getWebSockets()) {
 			this.safeSend(ws, event);
 		}
@@ -267,9 +296,10 @@ export class UserGateway extends DurableObject<Env> {
 		const contentHash = await this.hashContent(msg);
 
 		// Write metadata to D1
+		const expiresAt = timestamp + 7 * 24 * 60 * 60 * 1000;
 		await this.env.DB.prepare(
-			`INSERT INTO messages (id, match_id, sender_id, receiver_id, type, content_hash, timestamp)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO messages (id, match_id, sender_id, receiver_id, type, content_hash, timestamp, expires_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 			.bind(
 				messageId,
@@ -279,6 +309,7 @@ export class UserGateway extends DurableObject<Env> {
 				msg.type,
 				contentHash,
 				timestamp,
+				expiresAt,
 			)
 			.run();
 
@@ -360,6 +391,7 @@ export class UserGateway extends DurableObject<Env> {
 				break;
 			case "photo":
 				fcmPayload.url = delivery.url;
+				if (msg.blurHash) fcmPayload.blurHash = msg.blurHash;
 				break;
 			case "voice":
 				fcmPayload.silent = true;
@@ -384,22 +416,7 @@ export class UserGateway extends DurableObject<Env> {
 		}
 
 		// Write pending delivery to D1
-		await this.env.DB.prepare(
-			`INSERT INTO pending_deliveries
-			 (id, message_id, receiver_id, sender_id, match_id, type, fcm_payload, expires_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		)
-			.bind(
-				crypto.randomUUID(),
-				messageId,
-				msg.receiverId,
-				delivery.senderId,
-				msg.matchId,
-				msg.type,
-				JSON.stringify(fcmPayload),
-				timestamp + PENDING_EXPIRY_MS,
-			)
-			.run();
+		// TODO: hold voice messages for x amount of time and deliver when the respective user online
 	}
 
 	// ── WebRTC Signalling ──────────────────────────────────────────────
@@ -427,18 +444,79 @@ export class UserGateway extends DurableObject<Env> {
 
 	// ── Client Ack ─────────────────────────────────────────────────────
 
-	private async handleClientAck(messageId: string): Promise<void> {
-		const userId = await this.getUserId();
+	private async handleClientAck(
+		messageId: string,
+		senderId: string,
+	): Promise<void> {
+		// Notify the original sender that receiver got the message
+		const senderStub = this.env.USER_GATEWAY.get(
+			this.env.USER_GATEWAY.idFromName(senderId),
+		);
 
-		await this.env.DB.batch([
-			this.env.DB.prepare(
-				`UPDATE pending_deliveries SET delivered = 1
-				 WHERE message_id = ? AND receiver_id = ?`,
-			).bind(messageId, userId),
-			this.env.DB.prepare(
-				`UPDATE messages SET delivered = 1 WHERE id = ?`,
-			).bind(messageId),
-		]);
+		try {
+			await senderStub.deliverAck(messageId);
+		} catch {
+			// Sender offline — they'll see delivered status on reconnect
+		}
+	}
+
+	// ── Read Ack / Edit / Delete Relay ─────────────────────────────────
+
+	private async handleReadAck(
+		messageId: string,
+		senderId: string,
+	): Promise<void> {
+		const userId = await this.getUserId();
+		const senderStub = this.env.USER_GATEWAY.get(
+			this.env.USER_GATEWAY.idFromName(senderId),
+		);
+		try {
+			await senderStub.relayReadAck({
+				type: "read",
+				messageId,
+				senderId: userId,
+				timestamp: Date.now(),
+			});
+		} catch {
+			// Sender offline
+		}
+	}
+
+	private async handleEdit(msg: ClientEdit): Promise<void> {
+		const userId = await this.getUserId();
+		const recipientStub = this.env.USER_GATEWAY.get(
+			this.env.USER_GATEWAY.idFromName(msg.receiverId),
+		);
+		try {
+			await recipientStub.relayEdit({
+				type: "edit",
+				messageId: msg.messageId,
+				matchId: msg.matchId,
+				senderId: userId,
+				content: msg.content,
+				timestamp: Date.now(),
+			});
+		} catch {
+			// Recipient offline
+		}
+	}
+
+	private async handleDelete(msg: ClientDelete): Promise<void> {
+		const userId = await this.getUserId();
+		const recipientStub = this.env.USER_GATEWAY.get(
+			this.env.USER_GATEWAY.idFromName(msg.receiverId),
+		);
+		try {
+			await recipientStub.relayDelete({
+				type: "delete",
+				messageId: msg.messageId,
+				matchId: msg.matchId,
+				senderId: userId,
+				timestamp: Date.now(),
+			});
+		} catch {
+			// Recipient offline
+		}
 	}
 
 	// ── Presence ───────────────────────────────────────────────────────
@@ -475,17 +553,28 @@ export class UserGateway extends DurableObject<Env> {
 	private async loadMatches(): Promise<void> {
 		const userId = await this.getUserId();
 
-		const result = await this.env.DB.prepare(
-			`SELECT match_id, matched_user_id FROM matches
-			 WHERE user_id = ? AND active = 1`,
-		)
-			.bind(userId)
-			.all<{ match_id: string; matched_user_id: string }>();
+		const res = await fetch(
+			`${this.env.NODE_API_URL}/matches?userId=${encodeURIComponent(userId)}`,
+			{
+				headers: {
+					Authorization: `Bearer ${this.env.NODE_API_KEY}`,
+				},
+			},
+		);
+
+		if (!res.ok) {
+			throw new Error(`Failed to load matches: ${res.status}`);
+		}
+
+		const data = (await res.json()) as {
+			match_id: string;
+			matched_user_id: string;
+		}[];
 
 		this.matches.clear();
 		const list: Match[] = [];
 
-		for (const row of result.results) {
+		for (const row of data) {
 			const match: Match = {
 				matchId: row.match_id,
 				matchedUserId: row.matched_user_id,
@@ -497,37 +586,6 @@ export class UserGateway extends DurableObject<Env> {
 		// Cache in DO storage for fast reload after hibernation
 		await this.ctx.storage.put("cachedMatches", list);
 		this.matchesLoaded = true;
-	}
-
-	// ── Presence-Triggered Voice Sync ──────────────────────────────────
-
-	private async checkPendingVoiceDeliveries(): Promise<void> {
-		const userId = await this.getUserId();
-
-		const pending = await this.env.DB.prepare(
-			`SELECT message_id, sender_id, match_id FROM pending_deliveries
-			 WHERE receiver_id = ? AND type = 'voice' AND delivered = 0
-			 AND expires_at > ?`,
-		)
-			.bind(userId, Date.now())
-			.all<{ message_id: string; sender_id: string; match_id: string }>();
-
-		const notifications = pending.results.map(async (job) => {
-			const senderStub = this.env.USER_GATEWAY.get(
-				this.env.USER_GATEWAY.idFromName(job.sender_id),
-			);
-			try {
-				await senderStub.notifyVoiceReady(
-					job.match_id,
-					userId,
-					job.message_id,
-				);
-			} catch {
-				// Sender offline — they'll get it when they connect
-			}
-		});
-
-		await Promise.allSettled(notifications);
 	}
 
 	// ── Validation ─────────────────────────────────────────────────────

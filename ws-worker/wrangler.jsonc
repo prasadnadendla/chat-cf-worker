@@ -25,7 +25,7 @@
 	"d1_databases": [
 		{
 			"binding": "DB",
-			"database_name": "chat-db",
+			"database_name": "chat-metadata",
 			"database_id": "",
 			"migrations_dir": "migrations"
 		}
@@ -34,14 +34,14 @@
 	"r2_buckets": [
 		{
 			"binding": "PHOTOS_BUCKET",
-			"bucket_name": "chat-photos"
+			"bucket_name": "genzyy-convo"
 		}
 	],
 
 	"vars": {
 		"JWT_ISSUER": "",
 		"JWT_AUDIENCE": "",
-		"R2_BUCKET_NAME": "chat-photos",
+		"R2_BUCKET_NAME": "genzyy-convo",
 		"TURN_URLS": "[\"turn:turn.example.com:3478\"]",
 		"NODE_API_URL": ""
 	}

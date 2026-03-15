@@ -24,6 +24,7 @@ export interface GifMessage extends BaseClientMessage {
 export interface PhotoMessage extends BaseClientMessage {
 	type: "photo";
 	messageId: string;
+	blurHash?: string;
 }
 
 export interface VoiceMessage extends BaseClientMessage {
@@ -49,6 +50,28 @@ export interface RTCSignal {
 export interface ClientAck {
 	type: "ack";
 	messageId: string;
+	senderId: string;
+}
+
+export interface ClientReadAck {
+	type: "read";
+	messageId: string;
+	senderId: string;
+}
+
+export interface ClientEdit {
+	type: "edit";
+	messageId: string;
+	matchId: string;
+	receiverId: string;
+	content: string;
+}
+
+export interface ClientDelete {
+	type: "delete";
+	messageId: string;
+	matchId: string;
+	receiverId: string;
 }
 
 export interface ClientPong {
@@ -63,6 +86,9 @@ export type ClientMessage =
 	| ContentMessage
 	| RTCSignal
 	| ClientAck
+	| ClientReadAck
+	| ClientEdit
+	| ClientDelete
 	| ClientPong
 	| RefreshMatchesRequest;
 
@@ -114,6 +140,30 @@ export interface ServerError {
 	seq_no?: number;
 }
 
+export interface ServerReadAck {
+	type: "read";
+	messageId: string;
+	senderId: string;
+	timestamp: number;
+}
+
+export interface ServerEdit {
+	type: "edit";
+	messageId: string;
+	matchId: string;
+	senderId: string;
+	content: string;
+	timestamp: number;
+}
+
+export interface ServerDelete {
+	type: "delete";
+	messageId: string;
+	matchId: string;
+	senderId: string;
+	timestamp: number;
+}
+
 /** RTC signal relayed to recipient — receiverId replaced with senderId */
 export interface RelayedSignal {
 	type: "rtc_offer" | "rtc_answer" | "rtc_ice" | "rtc_failed";
@@ -125,6 +175,9 @@ export interface RelayedSignal {
 export type ServerMessage =
 	| ServerDelivery
 	| ServerAck
+	| ServerReadAck
+	| ServerEdit
+	| ServerDelete
 	| PresenceEvent
 	| UnmatchEvent
 	| VoiceReadyEvent

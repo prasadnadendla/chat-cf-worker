@@ -104,6 +104,28 @@ function error(message: string, status: number): Response {
 	return json({ error: message }, status);
 }
 
+// ── Chat Permission ────────────────────────────────────────────────────
+
+async function checkChatPermission(
+	env: Env,
+	userId: string,
+	targetId: string,
+): Promise<boolean> {
+	try {
+		const res = await fetch(
+			`${env.NODE_API_URL}/chat/permitted?userId=${encodeURIComponent(userId)}&targetId=${encodeURIComponent(targetId)}`,
+			{
+				headers: { Authorization: `Bearer ${env.NODE_API_KEY}` },
+			},
+		);
+		if (!res.ok) return false;
+		const data = (await res.json()) as { permitted: boolean };
+		return data.permitted;
+	} catch {
+		return false;
+	}
+}
+
 // ── Route Handlers ─────────────────────────────────────────────────────
 
 async function handleWebSocket(
@@ -209,8 +231,15 @@ export default {
 
 		const userId = payload.userId ?? payload.sub;
 
-		// WebSocket upgrade → UserGateway DO
+		// WebSocket upgrade → verify chat permission, then route to DO
 		if (request.headers.get("Upgrade") === "websocket") {
+			const targetId = url.searchParams.get("targetId");
+			if (targetId) {
+				const permitted = await checkChatPermission(env, userId, targetId);
+				if (!permitted) {
+					return error("Chat not permitted", 403);
+				}
+			}
 			return handleWebSocket(request, env, userId);
 		}
 
