@@ -125,11 +125,11 @@ export class UserGateway extends DurableObject<Env> {
 				break;
 
 			case "ack":
-				await this.handleClientAck(msg.messageId, msg.senderId);
+				await this.handleClientAck(msg.messageId, msg.matchId);
 				break;
 
 			case "read":
-				await this.handleReadAck(msg.messageId, msg.senderId);
+				await this.handleReadAck(msg.messageId, msg.matchId);
 				break;
 
 			case "edit":
@@ -264,8 +264,9 @@ export class UserGateway extends DurableObject<Env> {
 	): Promise<void> {
 		const userId = await this.getUserId();
 
-		// Validate match
-		if (!this.matches.has(msg.matchId)) {
+		// Validate match and resolve receiver
+		const receiverId = this.getReceiverForMatch(msg.matchId);
+		if (!receiverId) {
 			this.safeSend(ws, {
 				type: "error",
 				message: "Invalid matchId",
@@ -305,7 +306,7 @@ export class UserGateway extends DurableObject<Env> {
 				messageId,
 				msg.matchId,
 				userId,
-				msg.receiverId,
+				receiverId,
 				msg.type,
 				contentHash,
 				timestamp,
@@ -334,7 +335,7 @@ export class UserGateway extends DurableObject<Env> {
 
 		// Route to recipient
 		const recipientStub = this.env.USER_GATEWAY.get(
-			this.env.USER_GATEWAY.idFromName(msg.receiverId),
+			this.env.USER_GATEWAY.idFromName(receiverId),
 		);
 
 		let delivered = false;
@@ -351,6 +352,7 @@ export class UserGateway extends DurableObject<Env> {
 				messageId,
 				msg,
 				delivery,
+				receiverId,
 				timestamp,
 			);
 		}
@@ -371,6 +373,7 @@ export class UserGateway extends DurableObject<Env> {
 		messageId: string,
 		msg: ContentMessage,
 		delivery: ServerDelivery,
+		receiverId: string,
 		timestamp: number,
 	): Promise<void> {
 		const fcmPayload: Record<string, unknown> = {
@@ -407,21 +410,23 @@ export class UserGateway extends DurableObject<Env> {
 					Authorization: `Bearer ${this.env.NODE_API_KEY}`,
 				},
 				body: JSON.stringify({
-					userId: msg.receiverId,
+					userId: receiverId,
 					payload: fcmPayload,
 				}),
 			});
 		} catch {
-			// FCM dispatch failed — pending job is still recorded below
+			// FCM dispatch failed
 		}
 
-		// Write pending delivery to D1
 		// TODO: hold voice messages for x amount of time and deliver when the respective user online
 	}
 
 	// ── WebRTC Signalling ──────────────────────────────────────────────
 
 	private async handleRTCSignal(signal: RTCSignal): Promise<void> {
+		const receiverId = this.getReceiverForMatch(signal.matchId);
+		if (!receiverId) return;
+
 		const userId = await this.getUserId();
 
 		const relayed: RelayedSignal = {
@@ -432,7 +437,7 @@ export class UserGateway extends DurableObject<Env> {
 		};
 
 		const recipientStub = this.env.USER_GATEWAY.get(
-			this.env.USER_GATEWAY.idFromName(signal.receiverId),
+			this.env.USER_GATEWAY.idFromName(receiverId),
 		);
 
 		try {
@@ -446,9 +451,11 @@ export class UserGateway extends DurableObject<Env> {
 
 	private async handleClientAck(
 		messageId: string,
-		senderId: string,
+		matchId: string,
 	): Promise<void> {
-		// Notify the original sender that receiver got the message
+		const senderId = this.getReceiverForMatch(matchId);
+		if (!senderId) return;
+
 		const senderStub = this.env.USER_GATEWAY.get(
 			this.env.USER_GATEWAY.idFromName(senderId),
 		);
@@ -464,11 +471,14 @@ export class UserGateway extends DurableObject<Env> {
 
 	private async handleReadAck(
 		messageId: string,
-		senderId: string,
+		matchId: string,
 	): Promise<void> {
+		const receiverId = this.getReceiverForMatch(matchId);
+		if (!receiverId) return;
+
 		const userId = await this.getUserId();
 		const senderStub = this.env.USER_GATEWAY.get(
-			this.env.USER_GATEWAY.idFromName(senderId),
+			this.env.USER_GATEWAY.idFromName(receiverId),
 		);
 		try {
 			await senderStub.relayReadAck({
@@ -483,9 +493,12 @@ export class UserGateway extends DurableObject<Env> {
 	}
 
 	private async handleEdit(msg: ClientEdit): Promise<void> {
+		const receiverId = this.getReceiverForMatch(msg.matchId);
+		if (!receiverId) return;
+
 		const userId = await this.getUserId();
 		const recipientStub = this.env.USER_GATEWAY.get(
-			this.env.USER_GATEWAY.idFromName(msg.receiverId),
+			this.env.USER_GATEWAY.idFromName(receiverId),
 		);
 		try {
 			await recipientStub.relayEdit({
@@ -502,9 +515,12 @@ export class UserGateway extends DurableObject<Env> {
 	}
 
 	private async handleDelete(msg: ClientDelete): Promise<void> {
+		const receiverId = this.getReceiverForMatch(msg.matchId);
+		if (!receiverId) return;
+
 		const userId = await this.getUserId();
 		const recipientStub = this.env.USER_GATEWAY.get(
-			this.env.USER_GATEWAY.idFromName(msg.receiverId),
+			this.env.USER_GATEWAY.idFromName(receiverId),
 		);
 		try {
 			await recipientStub.relayDelete({
@@ -591,8 +607,8 @@ export class UserGateway extends DurableObject<Env> {
 	// ── Validation ─────────────────────────────────────────────────────
 
 	private validateContent(msg: ContentMessage): string | null {
-		if (!msg.matchId || !msg.receiverId || msg.seq_no == null) {
-			return "Missing required fields: matchId, receiverId, seq_no";
+		if (!msg.matchId || msg.seq_no == null) {
+			return "Missing required fields: matchId, seq_no";
 		}
 
 		switch (msg.type) {
@@ -674,6 +690,10 @@ export class UserGateway extends DurableObject<Env> {
 		this.userId =
 			(await this.ctx.storage.get<string>("userId")) ?? "";
 		return this.userId;
+	}
+
+	private getReceiverForMatch(matchId: string): string | null {
+		return this.matches.get(matchId)?.matchedUserId ?? null;
 	}
 
 	private safeSend(

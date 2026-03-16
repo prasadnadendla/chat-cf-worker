@@ -2,7 +2,6 @@
 
 export interface BaseClientMessage {
 	matchId: string;
-	receiverId: string;
 	seq_no: number;
 }
 
@@ -43,27 +42,25 @@ export type ContentType = ContentMessage["type"];
 export interface RTCSignal {
 	type: "rtc_offer" | "rtc_answer" | "rtc_ice" | "rtc_failed";
 	matchId: string;
-	receiverId: string;
 	payload: unknown;
 }
 
 export interface ClientAck {
 	type: "ack";
 	messageId: string;
-	senderId: string;
+	matchId: string;
 }
 
 export interface ClientReadAck {
 	type: "read";
 	messageId: string;
-	senderId: string;
+	matchId: string;
 }
 
 export interface ClientEdit {
 	type: "edit";
 	messageId: string;
 	matchId: string;
-	receiverId: string;
 	content: string;
 }
 
@@ -71,7 +68,6 @@ export interface ClientDelete {
 	type: "delete";
 	messageId: string;
 	matchId: string;
-	receiverId: string;
 }
 
 export interface ClientPong {
@@ -164,7 +160,7 @@ export interface ServerDelete {
 	timestamp: number;
 }
 
-/** RTC signal relayed to recipient — receiverId replaced with senderId */
+/** RTC signal relayed to recipient — server adds senderId so recipient knows who sent it */
 export interface RelayedSignal {
 	type: "rtc_offer" | "rtc_answer" | "rtc_ice" | "rtc_failed";
 	matchId: string;
