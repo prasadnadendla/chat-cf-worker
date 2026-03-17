@@ -25,7 +25,7 @@ const HEARTBEAT_TIMEOUT_MS = 60_000;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 30;
 const MAX_TEXT_LENGTH = 1000;
-const TENOR_DOMAIN = "tenor.com";
+const TENOR_DOMAIN = "giphy.com";
 
 export class UserGateway extends DurableObject<Env> {
 	private userId: string | null = null;
@@ -329,7 +329,7 @@ export class UserGateway extends DurableObject<Env> {
 		} else if (msg.type === "gif") {
 			delivery.url = msg.url;
 		} else if (msg.type === "photo") {
-			delivery.url = await this.generateR2SignedUrl(userId, msg.messageId);
+			delivery.url = msg.url;
 		}
 		// voice — no content, delivered via WebRTC
 

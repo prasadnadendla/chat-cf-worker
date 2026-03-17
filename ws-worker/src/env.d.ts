@@ -9,9 +9,9 @@ declare namespace Cloudflare {
 		R2_SECRET_ACCESS_KEY: string;
 		R2_ACCOUNT_ID: string;
 
-		// TURN server
-		TURN_USERNAME: string;
-		TURN_CREDENTIAL: string;
+		// TURN server (Cloudflare TURN API)
+		TURN_TOKEN: string;
+		TURN_API_TOKEN: string;
 
 		// Node.js internal API (FCM dispatch)
 		NODE_API_KEY: string;

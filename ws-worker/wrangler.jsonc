@@ -43,7 +43,6 @@
 		"JWT_ISSUER": "auth.genzyy.in",
 		"JWT_AUDIENCE": "genzyy-app",
 		"R2_BUCKET_NAME": "genzyy-convo",
-		"TURN_URLS": "[\"turn:turn.example.com:3478\"]",
 		"NODE_API_URL": "https://datingapp-api-820618709776.asia-south1.run.app"
 	}
 	// Secrets (set via `wrangler secret put <NAME>`):
@@ -51,9 +50,10 @@
 	//   R2_ACCESS_KEY_ID     — R2 S3-compatible API token
 	//   R2_SECRET_ACCESS_KEY
 	//   R2_ACCOUNT_ID        — Cloudflare account ID for R2 endpoint
-	//   TURN_USERNAME
-	//   TURN_CREDENTIAL
+	//   TURN_TOKEN           — Cloudflare TURN key ID
+	//   TURN_API_TOKEN       — Cloudflare TURN API bearer token
 	//   NODE_API_KEY         — Bearer token for Node.js internal API
+
 	//
 	// D1 setup:
 	//   wrangler d1 create chat-db

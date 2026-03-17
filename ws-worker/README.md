@@ -105,3 +105,8 @@
 - Does not call FCM directly
 - Does not manage R2 uploads
 - Does not process WebRTC media
+
+
+## Apply DB migrations
+
+`wrangler d1 migrations apply chat-metadata --remote`

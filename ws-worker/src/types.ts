@@ -24,6 +24,7 @@ export interface PhotoMessage extends BaseClientMessage {
 	type: "photo";
 	messageId: string;
 	blurHash?: string;
+	url: string;
 }
 
 export interface VoiceMessage extends BaseClientMessage {
