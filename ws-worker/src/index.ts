@@ -94,16 +94,25 @@ async function handleDeletePhoto(
 	return json({ deleted: true });
 }
 
-function handleIceConfig(env: Env): Response {
-	return json({
-		iceServers: [
-			{
-				urls: JSON.parse(env.TURN_URLS),
-				username: env.TURN_USERNAME,
-				credential: env.TURN_CREDENTIAL,
+async function handleIceConfig(env: Env): Promise<Response> {
+	const res = await fetch(
+		`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_TOKEN}/credentials/generate-ice-servers`,
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${env.TURN_API_TOKEN}`,
+				"Content-Type": "application/json",
 			},
-		],
-	});
+			body: JSON.stringify({ ttl: 86400 }),
+		},
+	);
+
+	if (!res.ok) {
+		return error("Failed to generate ICE servers", 502);
+	}
+
+	const iceConfig = await res.json();
+	return json(iceConfig);
 }
 
 // ── Worker Entry ───────────────────────────────────────────────────────

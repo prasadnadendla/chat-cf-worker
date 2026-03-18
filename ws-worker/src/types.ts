@@ -25,6 +25,7 @@ export interface PhotoMessage extends BaseClientMessage {
 	messageId: string;
 	blurHash?: string;
 	url: string;
+	viewLimit?: number;
 }
 
 export interface VoiceMessage extends BaseClientMessage {
@@ -100,6 +101,7 @@ export interface ServerDelivery {
 	content?: string;
 	url?: string;
 	timestamp: number;
+	viewLimit?: number;
 }
 
 export interface ServerAck {
