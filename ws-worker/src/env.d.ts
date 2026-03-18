@@ -15,5 +15,7 @@ declare namespace Cloudflare {
 
 		// Node.js internal API (FCM dispatch)
 		NODE_API_KEY: string;
+		// sys code for node api to worker call
+		SYS_API_KEY: string;
 	}
 }

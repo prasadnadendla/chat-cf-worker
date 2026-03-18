@@ -171,6 +171,21 @@ export interface RelayedSignal {
 	payload: unknown;
 }
 
+export interface BlockedEvent {
+	type: "blocked";
+	blockerUserId: string;
+}
+
+export interface UnblockedEvent {
+	type: "unblocked";
+	blockerUserId: string;
+}
+
+export interface NewMatchEvent {
+	type: "new_match";
+	matchId: string;
+}
+
 export type ServerMessage =
 	| ServerDelivery
 	| ServerAck
@@ -182,7 +197,10 @@ export type ServerMessage =
 	| VoiceReadyEvent
 	| ServerPing
 	| ServerError
-	| RelayedSignal;
+	| RelayedSignal
+	| BlockedEvent
+	| UnblockedEvent
+	| NewMatchEvent;
 
 // ── Domain ─────────────────────────────────────────────────────────────
 

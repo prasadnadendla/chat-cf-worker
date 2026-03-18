@@ -18,6 +18,7 @@ import type {
 	Match,
 	RateWindow,
 	ContentType,
+	NewMatchEvent,
 } from "./types";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -241,6 +242,36 @@ export class UserGateway extends DurableObject<Env> {
 
 	async notifyPresence(userId: string, online: boolean): Promise<void> {
 		const event: PresenceEvent = { type: "presence", userId, online };
+		for (const ws of this.ctx.getWebSockets()) {
+			this.safeSend(ws, event);
+		}
+	}
+
+	async deliverBlocked(blockerUserId: string): Promise<void> {
+		for (const ws of this.ctx.getWebSockets()) {
+			this.safeSend(ws, { type: "blocked", blockerUserId });
+		}
+	}
+
+	async deliverUnblocked(blockerUserId: string): Promise<void> {
+		for (const ws of this.ctx.getWebSockets()) {
+			this.safeSend(ws, { type: "unblocked", blockerUserId });
+		}
+	}
+
+	async deliverNewMatch(matchId: string, matchedUserId: string): Promise<void> {
+		// Hot-add to in-memory map so message routing works immediately
+		const match: Match = { matchId, matchedUserId };
+		this.matches.set(matchId, match);
+
+		// Keep DO storage cache consistent
+		const cached = (await this.ctx.storage.get<Match[]>("cachedMatches")) ?? [];
+		if (!cached.find(m => m.matchId === matchId)) {
+			cached.push(match);
+			await this.ctx.storage.put("cachedMatches", cached);
+		}
+
+		const event: NewMatchEvent = { type: "new_match", matchId };
 		for (const ws of this.ctx.getWebSockets()) {
 			this.safeSend(ws, event);
 		}

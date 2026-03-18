@@ -16,7 +16,7 @@ function extractToken(request: Request, url: URL): string | null {
 
 const CORS_HEADERS: HeadersInit = {
 	"Access-Control-Allow-Origin": "*",
-	"Access-Control-Allow-Methods": "GET, DELETE, OPTIONS",
+	"Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
 	"Access-Control-Allow-Headers": "Authorization, Content-Type",
 };
 
@@ -94,6 +94,39 @@ async function handleDeletePhoto(
 	return json({ deleted: true });
 }
 
+async function handleSysDeliver(request: Request, env: Env): Promise<Response> {
+	const auth = request.headers.get("Authorization");
+	if (!auth || auth !== `Bearer ${env.SYS_API_KEY}`) {
+		return error("Unauthorized", 401);
+	}
+
+	const body = await request.json() as {
+		targetUserId: string;
+		type: "blocked" | "unblocked" | "new_match";
+		blockerUserId?: string;
+		matchId?: string;
+		matchedUserId?: string;
+	};
+
+	if (!body.targetUserId || !body.type) {
+		return error("Missing required fields", 400);
+	}
+
+	const stub = env.USER_GATEWAY.get(env.USER_GATEWAY.idFromName(body.targetUserId));
+	if (body.type === "new_match") {
+		if (!body.matchId || !body.matchedUserId) return error("Missing matchId or matchedUserId", 400);
+		await stub.deliverNewMatch(body.matchId, body.matchedUserId);
+	} else if (body.type === "blocked") {
+		if (!body.blockerUserId) return error("Missing blockerUserId", 400);
+		await stub.deliverBlocked(body.blockerUserId);
+	} else {
+		if (!body.blockerUserId) return error("Missing blockerUserId", 400);
+		await stub.deliverUnblocked(body.blockerUserId);
+	}
+
+	return json({ ok: true });
+}
+
 async function handleIceConfig(env: Env): Promise<Response> {
 	const res = await fetch(
 		`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_TOKEN}/credentials/generate-ice-servers`,
@@ -123,6 +156,11 @@ export default {
 
 		if (request.method === "OPTIONS") {
 			return new Response(null, { status: 204, headers: CORS_HEADERS });
+		}
+
+		// System endpoint — authenticated by NODE_API_KEY, not user JWT
+		if (url.pathname === "/sys/deliver" && request.method === "POST") {
+			return handleSysDeliver(request, env);
 		}
 
 		const token = extractToken(request, url);

@@ -53,6 +53,7 @@
 	//   TURN_TOKEN           — Cloudflare TURN key ID
 	//   TURN_API_TOKEN       — Cloudflare TURN API bearer token
 	//   NODE_API_KEY         — Bearer token for Node.js internal API
+	//   SYS_API_KEY 		  — System- API key for system calls
 
 	//
 	// D1 setup:
