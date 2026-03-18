@@ -67,7 +67,6 @@ export class UserGateway extends DurableObject<Env> {
 		// Bootstrap state
 		await this.loadMatches();
 		await this.markOnline();
-		// Voice sync: presence broadcast notifies senders who hold pending voice state on-device
 
 		// Start heartbeat alarm
 		await this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_INTERVAL_MS);
@@ -158,6 +157,10 @@ export class UserGateway extends DurableObject<Env> {
 
 			case "refresh_matches":
 				await this.loadMatches();
+				break;
+
+			case "query_presence":
+				await this.handleQueryPresence(ws, msg.userId);
 				break;
 
 			default:
@@ -567,6 +570,19 @@ export class UserGateway extends DurableObject<Env> {
 	}
 
 	// ── Presence ───────────────────────────────────────────────────────
+
+	/** Client queried presence for a specific userId — reply with current online state */
+	private async handleQueryPresence(ws: WebSocket, userId: string): Promise<void> {
+		const stub = this.env.USER_GATEWAY.get(
+			this.env.USER_GATEWAY.idFromName(userId),
+		);
+		try {
+			const online = await stub.hasActiveSocket();
+			this.safeSend(ws, { type: "presence", userId, online });
+		} catch {
+			this.safeSend(ws, { type: "presence", userId, online: false });
+		}
+	}
 
 	private async markOnline(): Promise<void> {
 		await this.broadcastPresence(true);

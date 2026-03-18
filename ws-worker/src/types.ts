@@ -80,6 +80,11 @@ export interface RefreshMatchesRequest {
 	type: "refresh_matches";
 }
 
+export interface QueryPresenceRequest {
+	type: "query_presence";
+	userId: string;
+}
+
 export type ClientMessage =
 	| ContentMessage
 	| RTCSignal
@@ -88,7 +93,8 @@ export type ClientMessage =
 	| ClientEdit
 	| ClientDelete
 	| ClientPong
-	| RefreshMatchesRequest;
+	| RefreshMatchesRequest
+	| QueryPresenceRequest;
 
 // ── Server → Client Messages ───────────────────────────────────────────
 
