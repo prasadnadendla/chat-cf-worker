@@ -449,7 +449,7 @@ export class UserGateway extends DurableObject<Env> {
 
 		// Dispatch FCM via Node.js API
 		try {
-			await fetch(`${this.env.NODE_API_URL}/fcm/send`, {
+			await fetch(`${this.env.NODE_API_URL}/system/notify`, {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -648,7 +648,7 @@ export class UserGateway extends DurableObject<Env> {
 		const userId = await this.getUserId();
 
 		const res = await fetch(
-			`${this.env.NODE_API_URL}/sys/matches?userId=${encodeURIComponent(userId)}`,
+			`${this.env.NODE_API_URL}/system/matches?userId=${encodeURIComponent(userId)}`,
 			{
 				headers: {
 					Authorization: `Bearer ${this.env.NODE_API_KEY}`,
