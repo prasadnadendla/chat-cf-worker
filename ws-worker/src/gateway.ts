@@ -364,6 +364,7 @@ export class UserGateway extends DurableObject<Env> {
 			delivery.url = msg.url;
 		} else if (msg.type === "photo") {
 			delivery.url = msg.url;
+			if (msg.viewLimit != null) delivery.viewLimit = msg.viewLimit;
 		}
 		// voice — no content, delivered via WebRTC
 
