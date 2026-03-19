@@ -8,6 +8,7 @@ import type {
 	ServerReadAck,
 	ServerEdit,
 	ServerDelete,
+	ServerClearHistory,
 	ServerMessage,
 	PresenceEvent,
 	UnmatchEvent,
@@ -163,6 +164,10 @@ export class UserGateway extends DurableObject<Env> {
 				await this.handleQueryPresence(ws, msg.userId);
 				break;
 
+			case "clear_history":
+				await this.handleClearHistory(msg.matchId);
+				break;
+
 			default:
 				this.safeSend(ws, {
 					type: "error",
@@ -232,6 +237,12 @@ export class UserGateway extends DurableObject<Env> {
 	}
 
 	async relayDelete(event: ServerDelete): Promise<void> {
+		for (const ws of this.ctx.getWebSockets()) {
+			this.safeSend(ws, event);
+		}
+	}
+
+	async relayClearHistory(event: ServerClearHistory): Promise<void> {
 		for (const ws of this.ctx.getWebSockets()) {
 			this.safeSend(ws, event);
 		}
@@ -546,6 +557,25 @@ export class UserGateway extends DurableObject<Env> {
 			});
 		} catch {
 			// Recipient offline
+		}
+	}
+
+	private async handleClearHistory(matchId: string): Promise<void> {
+		const receiverId = this.getReceiverForMatch(matchId);
+		if (!receiverId) return;
+
+		const userId = await this.getUserId();
+		const recipientStub = this.env.USER_GATEWAY.get(
+			this.env.USER_GATEWAY.idFromName(receiverId),
+		);
+		try {
+			await recipientStub.relayClearHistory({
+				type: "clear_history",
+				matchId,
+				senderId: userId,
+			});
+		} catch {
+			// Recipient offline — they won't clear, acceptable
 		}
 	}
 

@@ -85,6 +85,11 @@ export interface QueryPresenceRequest {
 	userId: string;
 }
 
+export interface ClearHistoryRequest {
+	type: "clear_history";
+	matchId: string;
+}
+
 export type ClientMessage =
 	| ContentMessage
 	| RTCSignal
@@ -94,7 +99,8 @@ export type ClientMessage =
 	| ClientDelete
 	| ClientPong
 	| RefreshMatchesRequest
-	| QueryPresenceRequest;
+	| QueryPresenceRequest
+	| ClearHistoryRequest;
 
 // ── Server → Client Messages ───────────────────────────────────────────
 
@@ -169,6 +175,12 @@ export interface ServerDelete {
 	timestamp: number;
 }
 
+export interface ServerClearHistory {
+	type: "clear_history";
+	matchId: string;
+	senderId: string;
+}
+
 /** RTC signal relayed to recipient — server adds senderId so recipient knows who sent it */
 export interface RelayedSignal {
 	type: "rtc_offer" | "rtc_answer" | "rtc_ice" | "rtc_failed";
@@ -206,7 +218,8 @@ export type ServerMessage =
 	| RelayedSignal
 	| BlockedEvent
 	| UnblockedEvent
-	| NewMatchEvent;
+	| NewMatchEvent
+	| ServerClearHistory;
 
 // ── Domain ─────────────────────────────────────────────────────────────
 
