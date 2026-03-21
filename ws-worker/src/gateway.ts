@@ -221,9 +221,15 @@ export class UserGateway extends DurableObject<Env> {
 		const sockets = this.ctx.getWebSockets();
 		if (sockets.length === 0) return false;
 
+		// Track whether at least one send succeeded — a registered socket
+		// may be dead (abrupt disconnect) and ws.send() will throw
+		let anySent = false;
 		for (const ws of sockets) {
-			this.safeSend(ws, message);
+			if (this.safeSend(ws, message)) anySent = true;
 		}
+
+		// All sockets are dead — fall through to offline delivery immediately
+		if (!anySent) return false;
 
 		// Schedule FCM fallback if receiver doesn't ack within 2 minutes
 		const receiverId = await this.getUserId();
@@ -808,11 +814,12 @@ export class UserGateway extends DurableObject<Env> {
 	private safeSend(
 		ws: WebSocket,
 		data: ServerMessage | Record<string, unknown>,
-	): void {
+	): boolean {
 		try {
 			ws.send(JSON.stringify(data));
+			return true;
 		} catch {
-			// Socket already closed
+			return false;
 		}
 	}
 
