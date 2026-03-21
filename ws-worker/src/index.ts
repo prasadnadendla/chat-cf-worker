@@ -158,7 +158,7 @@ export default {
 			return new Response(null, { status: 204, headers: CORS_HEADERS });
 		}
 
-		// System endpoint — authenticated by NODE_API_KEY, not user JWT
+		// System endpoint — authenticated by SYS_API_KEY, not user JWT
 		if (url.pathname === "/sys/deliver" && request.method === "POST") {
 			return handleSysDeliver(request, env);
 		}

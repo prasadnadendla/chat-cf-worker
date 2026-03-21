@@ -28,6 +28,14 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 30;
 const MAX_TEXT_LENGTH = 1000;
 const TENOR_DOMAIN = "giphy.com";
+const DELIVERY_ACK_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+
+interface PendingAck {
+	receiverId: string;
+	message: ServerDelivery;
+	blurHash?: string;
+	expiresAt: number;
+}
 
 export class UserGateway extends DurableObject<Env> {
 	private userId: string | null = null;
@@ -75,12 +83,19 @@ export class UserGateway extends DurableObject<Env> {
 		return new Response(null, { status: 101, webSocket: client });
 	}
 
-	// ── Heartbeat (Alarm) ──────────────────────────────────────────────
+	// ── Heartbeat + Delivery Ack Timeout (Alarm) ──────────────────────
 
 	async alarm(): Promise<void> {
+		// Always check pending acks first — must run even if socket is gone
+		const hasPendingAcks = await this.checkPendingAcks();
+
 		const sockets = this.ctx.getWebSockets();
 		if (sockets.length === 0) {
 			await this.markOffline();
+			// Keep alarm alive only if there are still unresolved acks
+			if (hasPendingAcks) {
+				await this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_INTERVAL_MS);
+			}
 			return;
 		}
 
@@ -202,13 +217,24 @@ export class UserGateway extends DurableObject<Env> {
 		return this.ctx.getWebSockets().length > 0;
 	}
 
-	async deliverMessage(message: ServerDelivery): Promise<boolean> {
+	async deliverMessage(message: ServerDelivery, blurHash?: string): Promise<boolean> {
 		const sockets = this.ctx.getWebSockets();
 		if (sockets.length === 0) return false;
 
 		for (const ws of sockets) {
 			this.safeSend(ws, message);
 		}
+
+		// Schedule FCM fallback if receiver doesn't ack within 2 minutes
+		const receiverId = await this.getUserId();
+		const pending: PendingAck = {
+			receiverId,
+			message,
+			blurHash,
+			expiresAt: Date.now() + DELIVERY_ACK_TIMEOUT_MS,
+		};
+		await this.ctx.storage.put(`pending:ack:${message.messageId}`, pending);
+
 		return true;
 	}
 
@@ -384,10 +410,12 @@ export class UserGateway extends DurableObject<Env> {
 			this.env.USER_GATEWAY.idFromName(receiverId),
 		);
 
+		const blurHash = msg.type === "photo" ? msg.blurHash : undefined;
+
 		let delivered = false;
 		try {
 			if (await recipientStub.hasActiveSocket()) {
-				delivered = await recipientStub.deliverMessage(delivery);
+				delivered = await recipientStub.deliverMessage(delivery, blurHash);
 			}
 		} catch {
 			// Recipient DO unreachable — treat as offline
@@ -499,6 +527,9 @@ export class UserGateway extends DurableObject<Env> {
 		messageId: string,
 		matchId: string,
 	): Promise<void> {
+		// Cancel FCM fallback — receiver acknowledged the message
+		await this.ctx.storage.delete(`pending:ack:${messageId}`);
+
 		const senderId = this.getReceiverForMatch(matchId);
 		if (!senderId) return;
 
@@ -782,6 +813,74 @@ export class UserGateway extends DurableObject<Env> {
 			ws.send(JSON.stringify(data));
 		} catch {
 			// Socket already closed
+		}
+	}
+
+	// ── Delivery Ack Timeout ───────────────────────────────────────────
+
+	/** Scans pending acks, fires FCM for any that have expired. Returns true if any non-expired acks remain. */
+	private async checkPendingAcks(): Promise<boolean> {
+		const all = await this.ctx.storage.list<PendingAck>({ prefix: "pending:ack:" });
+		const now = Date.now();
+		const dispatches: Promise<void>[] = [];
+		let hasRemaining = false;
+
+		for (const [key, entry] of all) {
+			if (now >= entry.expiresAt) {
+				dispatches.push(
+					this.ctx.storage.delete(key).then(() => this.dispatchFcmFallback(entry)),
+				);
+			} else {
+				hasRemaining = true;
+			}
+		}
+
+		if (dispatches.length > 0) {
+			await Promise.allSettled(dispatches);
+		}
+
+		return hasRemaining;
+	}
+
+	private async dispatchFcmFallback(pending: PendingAck): Promise<void> {
+		const { message, receiverId, blurHash } = pending;
+
+		const fcmPayload: Record<string, unknown> = {
+			messageId: message.messageId,
+			matchId: message.matchId,
+			senderId: message.senderId,
+			type: message.messageType,
+			timestamp: message.timestamp,
+		};
+
+		switch (message.messageType) {
+			case "text":
+			case "emoji":
+				fcmPayload.content = message.content;
+				break;
+			case "gif":
+				fcmPayload.url = message.url;
+				break;
+			case "photo":
+				fcmPayload.url = message.url;
+				if (blurHash) fcmPayload.blurHash = blurHash;
+				break;
+			case "voice":
+				fcmPayload.silent = true;
+				break;
+		}
+
+		try {
+			await fetch(`${this.env.NODE_API_URL}/system/notify`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${this.env.NODE_API_KEY}`,
+				},
+				body: JSON.stringify({ userId: receiverId, payload: fcmPayload }),
+			});
+		} catch {
+			// FCM dispatch failed — best effort
 		}
 	}
 
