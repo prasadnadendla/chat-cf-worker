@@ -77,6 +77,9 @@ export class UserGateway extends DurableObject<Env> {
 		await this.loadMatches();
 		await this.markOnline();
 
+		// Flush any acks/reads that arrived while the sender was offline
+		await this.flushQueuedEvents(server);
+
 		// Start heartbeat alarm
 		await this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_INTERVAL_MS);
 
@@ -251,14 +254,16 @@ export class UserGateway extends DurableObject<Env> {
 			seq_no: -1,
 			timestamp: Date.now(),
 		};
-		for (const ws of this.ctx.getWebSockets()) {
-			this.safeSend(ws, ack);
+		if (!this.trySendToSockets(ack)) {
+			console.warn(`[deliverAck] sender offline, queuing ack for msgId=${messageId}`);
+			await this.ctx.storage.put(`queued:ack:${messageId}`, ack);
 		}
 	}
 
 	async relayReadAck(event: ServerReadAck): Promise<void> {
-		for (const ws of this.ctx.getWebSockets()) {
-			this.safeSend(ws, event);
+		if (!this.trySendToSockets(event)) {
+			console.warn(`[relayReadAck] sender offline, queuing read for msgId=${event.messageId}`);
+			await this.ctx.storage.put(`queued:read:${event.messageId}`, event);
 		}
 	}
 
@@ -537,7 +542,10 @@ export class UserGateway extends DurableObject<Env> {
 		await this.ctx.storage.delete(`pending:ack:${messageId}`);
 
 		const senderId = this.getReceiverForMatch(matchId);
-		if (!senderId) return;
+		if (!senderId) {
+			console.error(`[ack] no match found for matchId=${matchId} — matches loaded: ${this.matchesLoaded}, map size: ${this.matches.size}`);
+			return;
+		}
 
 		const senderStub = this.env.USER_GATEWAY.get(
 			this.env.USER_GATEWAY.idFromName(senderId),
@@ -545,8 +553,8 @@ export class UserGateway extends DurableObject<Env> {
 
 		try {
 			await senderStub.deliverAck(messageId);
-		} catch {
-			// Sender offline — they'll see delivered status on reconnect
+		} catch (e) {
+			console.error(`[ack] deliverAck RPC failed for sender=${senderId} msgId=${messageId}:`, e);
 		}
 	}
 
@@ -557,7 +565,10 @@ export class UserGateway extends DurableObject<Env> {
 		matchId: string,
 	): Promise<void> {
 		const receiverId = this.getReceiverForMatch(matchId);
-		if (!receiverId) return;
+		if (!receiverId) {
+			console.error(`[read] no match found for matchId=${matchId} — matches loaded: ${this.matchesLoaded}, map size: ${this.matches.size}`);
+			return;
+		}
 
 		const userId = await this.getUserId();
 		const senderStub = this.env.USER_GATEWAY.get(
@@ -570,8 +581,8 @@ export class UserGateway extends DurableObject<Env> {
 				senderId: userId,
 				timestamp: Date.now(),
 			});
-		} catch {
-			// Sender offline
+		} catch (e) {
+			console.error(`[read] relayReadAck RPC failed for sender=${receiverId} msgId=${messageId}:`, e);
 		}
 	}
 
@@ -820,6 +831,26 @@ export class UserGateway extends DurableObject<Env> {
 			return true;
 		} catch {
 			return false;
+		}
+	}
+
+	/** Send to all active sockets. Returns true if at least one send succeeded. */
+	private trySendToSockets(data: ServerMessage | Record<string, unknown>): boolean {
+		const sockets = this.ctx.getWebSockets();
+		if (sockets.length === 0) return false;
+		let anySent = false;
+		for (const ws of sockets) {
+			if (this.safeSend(ws, data)) anySent = true;
+		}
+		return anySent;
+	}
+
+	/** Deliver any acks/reads that were queued while this user was offline. */
+	private async flushQueuedEvents(ws: WebSocket): Promise<void> {
+		const queued = await this.ctx.storage.list<ServerMessage>({ prefix: "queued:" });
+		for (const [key, event] of queued) {
+			this.safeSend(ws, event);
+			await this.ctx.storage.delete(key);
 		}
 	}
 
